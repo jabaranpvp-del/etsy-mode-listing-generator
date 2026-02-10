@@ -6,8 +6,8 @@ import { Button } from './components/Button';
 /* ---------- IMAGE RESIZE (FIX 413 ERROR) ---------- */
 async function resizeImageToDataUrl(
   file: File,
-  maxSize = 1024,
-  quality = 0.82
+  maxSize = 768,
+  quality = 0.7
 ): Promise<string> {
   const img = document.createElement('img');
   img.src = URL.createObjectURL(file);
@@ -19,14 +19,16 @@ async function resizeImageToDataUrl(
 
   const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
   const canvas = document.createElement('canvas');
-  canvas.width = img.width * scale;
-  canvas.height = img.height * scale;
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
 
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
+  // خروجی JPEG فشرده
   return canvas.toDataURL('image/jpeg', quality);
 }
+
 /* ------------------------------------------------- */
 
 const App: React.FC = () => {
@@ -46,6 +48,14 @@ const App: React.FC = () => {
 
     try {
       const resizedImage = await resizeImageToDataUrl(file);
+// اگر هنوز خیلی بزرگه، بیشتر کوچک کن
+if (resizedImage.length > 900_000) {
+  const smaller = await resizeImageToDataUrl(file, 512, 0.6);
+  setImage(smaller);
+} else {
+  setImage(resizedImage);
+}
+
       setImage(resizedImage);
       setResult(null);
       setError(null);
