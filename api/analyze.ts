@@ -3,15 +3,12 @@
 type VercelRequest = any;
 type VercelResponse = any;
 
-import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 
-function dataUrlToInlineData(dataUrl: string) {
+function splitDataUrl(dataUrl: string) {
   const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
   if (!match) throw new Error("Invalid image data URL");
-  return {
-    mimeType: match[1],
-    data: match[2],
-  };
+  return { mimeType: match[1], base64: match[2] };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -25,13 +22,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: "imageDataUrl is required" });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
+      return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
     }
 
-    const ai = new GoogleGenAI({ apiKey });
-    const inlineData = dataUrlToInlineData(imageDataUrl);
+    const { mimeType, base64 } = splitDataUrl(imageDataUrl);
+
+    const client = new OpenAI({ apiKey });
 
     const prompt = `
 Return ONLY valid JSON. No markdown. No explanations. No extra text.
@@ -53,21 +51,28 @@ Rules:
 - be concise and SEO-oriented
 `;
 
-    const resp = await ai.models.generateContent({
-      model: "models/gemini-pro-vision",
-      contents: [
+    // Use a vision-capable model. If this model name errors in your account,
+    // check your OpenAI dashboard for the recommended vision model and swap it here.
+    const response = await client.responses.create({
+      model: "gpt-4o-mini",
+      input: [
         {
           role: "user",
-          parts: [
-            { text: prompt },
-            { inlineData }
-          ]
-        }
-      ]
+          content: [
+            { type: "input_text", text: prompt },
+            {
+              type: "input_image",
+              image_url: `data:${mimeType};base64,${base64}`,
+            },
+          ],
+        },
+      ],
     });
 
-    const raw = resp.response.text();
-    const cleaned = raw
+    const text = response.output_text?.trim() || "";
+
+    // Sometimes models wrap JSON in fences; strip defensively.
+    const cleaned = text
       .replace(/```json/gi, "")
       .replace(/```/g, "")
       .trim();
