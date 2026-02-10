@@ -1,3 +1,8 @@
+
+export async function analyzeEtsyImage(imageDataUrl: string) {
+  console.log('🔥 analyzeEtsyImage CALLED');
+
+
 import { EtsyListingData } from '../types';
 
 export async function analyzeEtsyImage(imageDataUrl: string): Promise<EtsyListingData> {

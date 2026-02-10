@@ -82,6 +82,8 @@ const App: React.FC = () => {
     if (!image) return;
     setStatus('analyzing');
     setError(null);
+console.log('🟢 Generate clicked');
+
 
     try {
       const data = await analyzeEtsyImage(image);
