@@ -1,16 +1,20 @@
-import type { EtsyListingData } from "../types";
+import { EtsyListingData } from '../types';
 
 export async function analyzeEtsyImage(imageDataUrl: string): Promise<EtsyListingData> {
-  const res = await fetch("/api/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ imageDataUrl }),
+  const response = await fetch('/api/analyze', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      imageDataUrl, // اسم فیلد باید دقیقاً همین باشه
+    }),
   });
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error || "Server error");
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`API Error ${response.status}: ${text}`);
   }
 
-  return res.json();
+  return response.json();
 }
