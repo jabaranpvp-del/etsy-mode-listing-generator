@@ -1,9 +1,8 @@
 // api/analyze.ts
+import OpenAI from "openai";
 
 type VercelRequest = any;
 type VercelResponse = any;
-
-import OpenAI from "openai";
 
 function splitDataUrl(dataUrl: string) {
   const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
@@ -11,20 +10,36 @@ function splitDataUrl(dataUrl: string) {
   return { mimeType: match[1], base64: match[2] };
 }
 
+function safeJsonParse(text: string) {
+  const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error(`Model returned non-JSON output: ${cleaned.slice(0, 400)}`);
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Only POST
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+    return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
   try {
-    const { imageDataUrl } = req.body || {};
-    if (!imageDataUrl || typeof imageDataUrl !== "string") {
-      return res.status(400).json({ error: "imageDataUrl is required" });
-    }
-
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
+      return res.status(500).json({ error: "Missing OPENAI_API_KEY on server." });
+    }
+
+    const body = req.body || {};
+    const imageDataUrl =
+      body.imageDataUrl || body.image || body.imageData || body.dataUrl || body.base64;
+
+    if (!imageDataUrl || typeof imageDataUrl !== "string") {
+      return res.status(400).json({
+        error: "imageDataUrl is required",
+        gotKeys: Object.keys(body || {}),
+      });
     }
 
     const { mimeType, base64 } = splitDataUrl(imageDataUrl);
@@ -32,9 +47,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const client = new OpenAI({ apiKey });
 
     const prompt = `
-Return ONLY valid JSON. No markdown. No explanations. No extra text.
+Return ONLY valid JSON. No markdown. No extra text.
 
-Keys required:
+Required keys:
 title
 description
 firstMainColor
@@ -47,12 +62,10 @@ room
 tags
 
 Rules:
-- tags must be a single comma-separated string of exactly 13 tags
-- be concise and SEO-oriented
+- tags must be a single comma-separated string of exactly 13 tags.
+- Keep output concise and SEO-oriented.
 `;
 
-    // Use a vision-capable model. If this model name errors in your account,
-    // check your OpenAI dashboard for the recommended vision model and swap it here.
     const response = await client.responses.create({
       model: "gpt-4o-mini",
       input: [
@@ -69,19 +82,40 @@ Rules:
       ],
     });
 
-    const text = response.output_text?.trim() || "";
+    const text = (response.output_text || "").trim();
+    if (!text) {
+      return res.status(500).json({ error: "Empty response from model." });
+    }
 
-    // Sometimes models wrap JSON in fences; strip defensively.
-    const cleaned = text
-      .replace(/```json/gi, "")
-      .replace(/```/g, "")
-      .trim();
+    const data = safeJsonParse(text);
 
-    const data = JSON.parse(cleaned);
+    // Minimal validation
+    const required = [
+      "title",
+      "description",
+      "firstMainColor",
+      "secondMainColor",
+      "homeStyle",
+      "celebration",
+      "occasion",
+      "subject",
+      "room",
+      "tags",
+    ];
+    const missing = required.filter((k) => !(k in data));
+    if (missing.length > 0) {
+      return res.status(500).json({
+        error: "Model JSON missing required keys",
+        missing,
+        rawPreview: text.slice(0, 300),
+      });
+    }
+
     return res.status(200).json(data);
-
   } catch (err: any) {
     console.error("Analyze error:", err);
+
+    // Helpful error payload
     return res.status(500).json({
       error: "Analyze failed",
       detail: String(err?.message || err),
