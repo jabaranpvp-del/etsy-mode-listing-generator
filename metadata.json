@@ -1,0 +1,6 @@
+
+{
+  "name": "Etsy Mode Listing Generator",
+  "description": "A high-performance React application designed for Etsy sellers to automatically generate digital download listings. Upload an image, and our AI analyzes it to create optimized titles, descriptions, and tags based on strict Etsy SEO guidelines.",
+  "requestFramePermissions": []
+}
