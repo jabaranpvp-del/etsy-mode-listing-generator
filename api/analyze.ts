@@ -1,3 +1,4 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI } from "@google/genai";
 
 function dataUrlToInlineData(dataUrl: string) {
@@ -6,65 +7,43 @@ function dataUrlToInlineData(dataUrl: string) {
   return { mimeType: match[1], data: match[2] };
 }
 
-// Vercel Node Function entry
-export default {
-  async fetch(request: Request) {
-    try {
-      if (request.method !== "POST") {
-        return new Response("Method Not Allowed", { status: 405 });
-      }
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-      const body = await request.json().catch(() => ({}));
-      const imageDataUrl = body?.imageDataUrl;
+  try {
+    const { imageDataUrl } = (req.body || {}) as { imageDataUrl?: string };
+    if (!imageDataUrl) return res.status(400).json({ error: "imageDataUrl is required" });
 
-      if (!imageDataUrl || typeof imageDataUrl !== "string") {
-        return Response.json({ error: "imageDataUrl is required" }, { status: 400 });
-      }
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
 
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return Response.json({ error: "Missing GEMINI_API_KEY on server" }, { status: 500 });
-      }
+    const ai = new GoogleGenAI({ apiKey });
+    const inlineData = dataUrlToInlineData(imageDataUrl);
 
-      const ai = new GoogleGenAI({ apiKey });
-
-      const inlineData = dataUrlToInlineData(imageDataUrl);
-
-      // ساده و بیسیک: فقط JSON برگردون
-      const prompt = `
+    const prompt = `
 Return ONLY valid JSON (no markdown, no extra text) with these keys:
 title, description, firstMainColor, secondMainColor, homeStyle, celebration, occasion, subject, room, tags.
-- tags must be a single comma-separated string of 13 tags.
+tags must be a single comma-separated string of 13 tags.
 `;
 
-      const resp = await ai.models.generateContent({
-        // اگر این مدل در اکانتت در دسترس نبود، بعداً سریع عوضش می‌کنیم.
-        model: "gemini-2.0-flash",
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt }, { inlineData }],
-          },
-        ],
-      });
+    const resp = await ai.models.generateContent({
+      model: "gemini-1.5-flash",
+      generationConfig: { responseMimeType: "application/json" },
+      contents: [{ role: "user", parts: [{ text: prompt }, { inlineData }] }],
+    });
 
-      const text = (resp as any).text?.trim?.() ?? "";
-      const cleaned = text
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/```$/i, "")
-        .trim();
+    // Compatible text extraction across SDK shapes
+    const text =
+      (resp as any).text ??
+      (typeof (resp as any).text === "function" ? (resp as any).text() : "") ??
+      (typeof (resp as any).response?.text === "function" ? (resp as any).response.text() : "");
 
-      const data = JSON.parse(cleaned);
+    const cleaned = String(text).trim();
+    const data = JSON.parse(cleaned);
 
-      return Response.json(data, {
-        headers: { "Cache-Control": "no-store" },
-      });
-    } catch (err: any) {
-      return Response.json(
-        { error: "Analyze failed", detail: String(err?.message || err) },
-        { status: 500 }
-      );
-    }
-  },
-};
+    return res.status(200).json(data);
+  } catch (err: any) {
+    console.error(err);
+    return res.status(500).json({ error: "Analyze failed", detail: String(err?.message || err) });
+  }
+}
